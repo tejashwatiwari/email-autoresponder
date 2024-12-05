@@ -1,46 +1,91 @@
-# Getting Started with Create React App
+# Gmail Auto-Responder
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React application that helps you manage your Gmail inbox with AI-powered auto-responses.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- Google OAuth integration for secure Gmail access
+- View and manage your emails
+- Archive emails with one click
+- Modern, responsive UI with Material UI
+- Dark theme support
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+Before you begin, ensure you have:
+- Node.js installed (v14 or later)
+- A Google Cloud Console project with Gmail API enabled
+- OAuth 2.0 credentials configured
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## Setup
 
-### `npm test`
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd gmail-reply-autoresponder
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+2. Install dependencies:
+```bash
+npm install
+```
 
-### `npm run build`
+3. Create a `.env` file in the root directory with the following variables:
+```env
+VITE_GMAIL_CLIENT_ID=your_client_id_here
+VITE_OPENAI_API_KEY=your_openai_api_key_here
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+4. Configure OAuth in Google Cloud Console:
+   - Go to the Google Cloud Console
+   - Enable the Gmail API
+   - Configure the OAuth consent screen
+   - Create OAuth 2.0 credentials
+   - Add `http://localhost:3000` as an authorized JavaScript origin
+   - Add `http://localhost:3000/callback` as an authorized redirect URI
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+5. Start the development server:
+```bash
+npm start
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Usage
 
-### `npm run eject`
+1. Open `http://localhost:3000` in your browser
+2. Click "Sign in with Google" and authorize the application
+3. View your emails in the dashboard
+4. Use the archive button to move emails to trash
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+## Tech Stack
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+- React
+- TypeScript
+- Material UI
+- Zustand (State Management)
+- React Query
+- React Router
+- Gmail API
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## Development
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+To run the development server:
+```bash
+npm start
+```
 
-## Learn More
+To build for production:
+```bash
+npm run build
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Contributing
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details
