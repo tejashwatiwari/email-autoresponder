@@ -10,7 +10,10 @@ import {
   Chip,
   CircularProgress,
   Button,
-  Skeleton 
+  Skeleton,
+  LinearProgress,
+  Paper,
+  Collapse
 } from '@mui/material';
 import { 
   Archive as ArchiveIcon, 
@@ -22,6 +25,7 @@ import { gmailApi } from '../services/gmailApi';
 import { Email } from '../types/email';
 import toast from 'react-hot-toast';
 import { EmailProcessor } from '../services/emailProcessor';
+import EmailModal from './EmailModal';
 
 const DEFAULT_LABELS_TO_HIDE = [
   'INBOX',
@@ -41,11 +45,18 @@ const DEFAULT_LABELS_TO_HIDE = [
 
 const EmailDashboard: React.FC = () => {
   const [emails, setEmails] = useState<Email[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<{
+    step: string;
+    progress: number;
+    detail: string;
+  }>({ step: '', progress: 0, detail: '' });
   const [hasMoreEmails, setHasMoreEmails] = useState(false);
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
   const { logout } = useAuthStore();
@@ -99,34 +110,95 @@ const EmailDashboard: React.FC = () => {
   };
 
   const processEmails = async () => {
-    try {
-      const result = await emailProcessor.processNewEmails();
-      return result;
-    } catch (error) {
-      console.error('Error processing emails:', error);
-      throw error;
-    }
-  };
+    setIsProcessing(true);
+    setProcessingStatus({
+      step: 'Starting',
+      progress: 10,
+      detail: 'Initializing email processing...'
+    });
 
-  const handleProcessEmails = async (resetPagination: boolean = false) => {
     try {
-      if (resetPagination) {
-        emailProcessor.resetPagination();
-      }
-      setIsProcessing(true);
-      const result = await processEmails();
-      setHasMoreEmails(result.hasMore);
-      if (result.processedCount > 0) {
-        toast.success(`Processed ${result.processedCount} emails`);
+      const emailProcessor = EmailProcessor.getInstance();
+      let processedCount = 0;
+      let currentPageToken: string | undefined = undefined;
+      let pageCount = 0;
+      let totalProcessed = 0;
+
+      do {
+        // Update status for fetching current page
+        setProcessingStatus({
+          step: 'Fetching',
+          progress: 30,
+          detail: `Retrieving page ${pageCount + 1} of emails...`
+        });
+        
+        const response: { 
+          emails: Email[];
+          nextPageToken?: string;
+        } = await gmailApi.getEmails(currentPageToken);
+        
+        const unprocessedEmails = response.emails.filter((email: Email) => 
+          !email.labelNames.includes('Processed') && !email.labelNames.includes('RateLimit')
+        );
+
+        if (unprocessedEmails.length > 0) {
+          // Process emails from current page
+          for (let i = 0; i < unprocessedEmails.length; i++) {
+            const email = unprocessedEmails[i];
+            await emailProcessor.processEmail(email);
+            totalProcessed++;
+            
+            // Update progress for current page
+            const progress = 30 + Math.floor((totalProcessed / (totalProcessed + 1)) * 60);
+            setProcessingStatus({
+              step: 'Processing',
+              progress,
+              detail: `Processed ${totalProcessed} emails (current page: ${i + 1}/${unprocessedEmails.length})...`
+            });
+          }
+        }
+
+        pageCount++;
+        currentPageToken = response.nextPageToken;
+
+        // If there are no more pages or we've processed enough, break
+        if (!currentPageToken || pageCount >= 10) { // Limit to 10 pages for safety
+          break;
+        }
+      } while (currentPageToken);
+
+      if (totalProcessed === 0) {
+        setProcessingStatus({
+          step: 'Complete',
+          progress: 100,
+          detail: 'No new emails to process!'
+        });
       } else {
-        toast('No new emails to process');
+        // Final status
+        setProcessingStatus({
+          step: 'Complete',
+          progress: 100,
+          detail: `Successfully processed ${totalProcessed} emails across ${pageCount} pages!`
+        });
       }
-      await fetchEmails();
+
+      // Refresh the email list
+      fetchEmails();
+      
+      // Reset after a delay
+      setTimeout(() => {
+        setIsProcessing(false);
+        setProcessingStatus({ step: '', progress: 0, detail: '' });
+      }, 2000);
+
     } catch (error) {
       console.error('Error processing emails:', error);
-      toast.error('Error processing emails');
-    } finally {
-      setIsProcessing(false);
+      setProcessingStatus({
+        step: 'Error',
+        progress: 100,
+        detail: 'Error processing emails. Please try again.'
+      });
+      setTimeout(() => setIsProcessing(false), 2000);
     }
   };
 
@@ -149,6 +221,16 @@ const EmailDashboard: React.FC = () => {
       console.error('Error archiving email:', error);
       toast.error('Failed to archive email');
     }
+  };
+
+  const handleEmailClick = (email: Email) => {
+    setSelectedEmail(email);
+    setModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setSelectedEmail(null);
   };
 
   useEffect(() => {
@@ -251,7 +333,7 @@ const EmailDashboard: React.FC = () => {
             }
           }}>
             <Button
-              onClick={() => handleProcessEmails(true)}
+              onClick={() => processEmails()}
               disabled={isProcessing}
               variant="contained"
               sx={{
@@ -267,7 +349,7 @@ const EmailDashboard: React.FC = () => {
             </Button>
             {hasMoreEmails && (
               <Button
-                onClick={() => handleProcessEmails(false)}
+                onClick={() => processEmails()}
                 disabled={isProcessing}
                 variant="contained"
                 sx={{
@@ -315,6 +397,39 @@ const EmailDashboard: React.FC = () => {
           </Box>
         </Box>
 
+        <Collapse in={isProcessing}>
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              p: 2, 
+              mb: 3, 
+              backgroundColor: 'background.default',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1
+            }}
+          >
+            <Box sx={{ width: '100%' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="subtitle1" color="primary">
+                  {processingStatus.step}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {processingStatus.progress}%
+                </Typography>
+              </Box>
+              <LinearProgress 
+                variant="determinate" 
+                value={processingStatus.progress} 
+                sx={{ mb: 1 }}
+              />
+              <Typography variant="body2" color="text.secondary">
+                {processingStatus.detail}
+              </Typography>
+            </Box>
+          </Paper>
+        </Collapse>
+
         {isLoading ? (
           <Box sx={{ my: 4, textAlign: 'center' }}>
             <CircularProgress sx={{ mb: 2 }} />
@@ -338,11 +453,13 @@ const EmailDashboard: React.FC = () => {
                     p: 2,
                     bgcolor: 'background.paper',
                     transition: 'all 0.2s ease',
+                    cursor: 'pointer',
                     '&:hover': {
                       transform: 'scale(1.01)',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                     }
                   }}
+                  onClick={() => handleEmailClick(email)}
                 >
                   <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                     <ListItemText
@@ -351,7 +468,10 @@ const EmailDashboard: React.FC = () => {
                       sx={{ mr: 2 }}
                     />
                     <IconButton
-                      onClick={() => handleArchive(email)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleArchive(email);
+                      }}
                       size="small"
                       sx={{ 
                         alignSelf: 'flex-start',
@@ -432,6 +552,11 @@ const EmailDashboard: React.FC = () => {
           </>
         )}
       </Box>
+      <EmailModal
+        email={selectedEmail}
+        open={modalOpen}
+        onClose={handleCloseModal}
+      />
     </Container>
   );
 };

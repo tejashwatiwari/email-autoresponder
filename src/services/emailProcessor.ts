@@ -9,6 +9,8 @@ export class EmailProcessor {
     private static instance: EmailProcessor;
     private gmailService: GmailService;
     private promptService: PromptService;
+    private openai: typeof openaiService;
+    private gmail: typeof gmailApi;
     private isProcessing: boolean = false;
     private currentPage: number = 0;
     private readonly batchSize: number = 30;
@@ -17,6 +19,8 @@ export class EmailProcessor {
     private constructor() {
         this.gmailService = GmailService.getInstance();
         this.promptService = PromptService.getInstance();
+        this.openai = openaiService;
+        this.gmail = gmailApi;
     }
 
     public static getInstance(): EmailProcessor {
@@ -41,7 +45,7 @@ export class EmailProcessor {
     private async createLabelIfNotExists(labelName: string): Promise<void> {
         try {
             // Check if the label exists first
-            const existingLabel = await gmailApi.findLabelByName(labelName);
+            const existingLabel = await this.gmail.findLabelByName(labelName);
             if (existingLabel) {
                 console.log(`Label ${labelName} already exists with ID ${existingLabel.id}`);
                 return;
@@ -49,7 +53,7 @@ export class EmailProcessor {
 
             // Create the label if it doesn't exist
             console.log(`Creating new label: ${labelName}`);
-            await gmailApi.createLabel(labelName);
+            await this.gmail.createLabel(labelName);
         } catch (error) {
             console.error(`Error creating label ${labelName}:`, error);
             // Don't throw the error, just log it and continue
@@ -59,12 +63,12 @@ export class EmailProcessor {
     private async applyLabelsToEmail(emailId: string, category: EmailCategory, subLabels: string[]): Promise<void> {
         try {
             // Apply the main category label
-            await gmailApi.addLabel(emailId, category);
+            await this.gmail.addLabel(emailId, category);
 
             // Apply sub-labels only if it's not an appreciation email
             if (category !== EmailCategory.APPRECIATION && subLabels.length > 0) {
                 for (const label of subLabels) {
-                    await gmailApi.addLabel(emailId, label);
+                    await this.gmail.addLabel(emailId, label);
                 }
             }
         } catch (error) {
@@ -107,9 +111,9 @@ export class EmailProcessor {
 
     async processEmail(email: Email): Promise<void> {
         try {
-            // Check if email is already processed
-            if (this.hasLabel(email, 'Processed') || this.hasLabel(email, 'RateLimit')) {
-                console.log(`Email ${email.id} already processed, skipping`);
+            // Check if email needs processing
+            const shouldProcess = await this.shouldProcessEmail(email);
+            if (!shouldProcess) {
                 return;
             }
 
@@ -119,14 +123,14 @@ export class EmailProcessor {
             // Check for rate limit mentions first
             if (this.isRateLimitContent(emailContent)) {
                 console.log('Rate limit related content detected, applying RateLimit label');
-                await gmailApi.addLabel(email.id, 'RateLimit');
-                await gmailApi.addLabel(email.id, 'Processed');
+                await this.gmail.addLabel(email.id, 'RateLimit');
+                await this.gmail.addLabel(email.id, 'Processed');
                 return;
             }
 
             // Use OpenAI to classify the email
             console.log(`Classifying email ${email.id}`);
-            const { category } = await openaiService.classifyEmail(emailContent);
+            const { category } = await this.openai.classifyEmail(emailContent);
             
             // Create the label if it doesn't exist
             console.log(`Creating/checking label: ${category}`);
@@ -134,10 +138,10 @@ export class EmailProcessor {
             
             // Apply the category label
             console.log(`Applying label ${category} to email ${email.id}`);
-            await gmailApi.addLabel(email.id, category);
+            await this.gmail.addLabel(email.id, category);
             
             // Mark as processed
-            await gmailApi.addLabel(email.id, 'Processed');
+            await this.gmail.addLabel(email.id, 'Processed');
 
             console.log(`Successfully processed email ${email.id}`);
         } catch (error) {
@@ -146,12 +150,22 @@ export class EmailProcessor {
             // Also check if the error itself contains rate limit terms
             if (error instanceof Error && this.isRateLimitContent(error.message)) {
                 console.log('Rate limit error detected, applying RateLimit label');
-                await gmailApi.addLabel(email.id, 'RateLimit');
-                await gmailApi.addLabel(email.id, 'Processed');
+                await this.gmail.addLabel(email.id, 'RateLimit');
+                await this.gmail.addLabel(email.id, 'Processed');
             }
             
             throw error;
         }
+    }
+
+    private async shouldProcessEmail(email: Email): Promise<boolean> {
+        // Check if already processed
+        if (this.hasLabel(email, 'Processed')) {
+            return false;
+        }
+
+        // Add more conditions here if needed
+        return true;
     }
 
     async processNewEmails(): Promise<{ processedCount: number, hasMore: boolean }> {
@@ -167,7 +181,7 @@ export class EmailProcessor {
             await this.createLabelIfNotExists('Processed');
             
             // Get unprocessed emails from inbox
-            const response = await gmailApi.getEmails();
+            const response = await this.gmail.getEmails();
             const unprocessedEmails = response.emails.filter(email => {
                 const isProcessed = this.hasLabel(email, 'Processed');
                 const hasRateLimit = this.hasLabel(email, 'RateLimit');

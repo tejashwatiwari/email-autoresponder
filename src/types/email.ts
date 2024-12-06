@@ -7,7 +7,7 @@ export interface Email {
   date: string;
   labels: string[];
   labelNames: string[];
-  body: string;
+  body?: string;
   inReplyTo?: string;
   references?: string;
 }

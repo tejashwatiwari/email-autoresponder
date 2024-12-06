@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Email, GmailLabel } from '../types';
+import { Email } from '../types/email';
 import toast from 'react-hot-toast';
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -88,7 +88,7 @@ async function makeRequest(config: any): Promise<any> {
 }
 
 export const gmailApi = {
-    async getLabels(): Promise<GmailLabel[]> {
+    async getLabels(): Promise<any[]> {
         try {
             const response = await makeRequest({
                 method: 'get',
@@ -99,7 +99,7 @@ export const gmailApi = {
             });
             
             // Cache the labels using display name if available
-            response.data.labels.forEach((label: GmailLabel) => {
+            response.data.labels.forEach((label: any) => {
                 labelCache.set(label.id, label.name || label.id);
             });
             
@@ -207,6 +207,81 @@ export const gmailApi = {
         }
     },
 
+    async getFullThread(threadId: string): Promise<Email[]> {
+        try {
+            // First get all labels to create a mapping
+            const labelsResponse = await makeRequest({
+                method: 'get',
+                url: `${GMAIL_API_BASE}/labels`,
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('gmail_token')}`,
+                },
+            });
+            
+            const labelMap = new Map(
+                labelsResponse.data.labels.map((label: any) => [label.id, label.name])
+            );
+
+            const response = await makeRequest({
+                method: 'get',
+                url: `${GMAIL_API_BASE}/threads/${threadId}`,
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('gmail_token')}`,
+                },
+                params: {
+                    format: 'full'
+                }
+            });
+
+            const thread = response.data;
+            const emails: Email[] = thread.messages.map((message: any) => {
+                const headers = message.payload.headers;
+                const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
+                const from = headers.find((h: any) => h.name === 'From')?.value || '';
+                const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+                
+                // Get email body
+                let body = '';
+                if (message.payload.parts) {
+                    const textPart = message.payload.parts.find(
+                        (part: any) => part.mimeType === 'text/plain' || part.mimeType === 'text/html'
+                    );
+                    if (textPart && textPart.body.data) {
+                        body = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                    }
+                } else if (message.payload.body.data) {
+                    body = atob(message.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                }
+
+                // Convert label IDs to names
+                const labelNames = (message.labelIds || [])
+                    .map((id: string) => labelMap.get(id))
+                    .filter((name: string | undefined): name is string => name !== undefined);
+
+                return {
+                    id: message.id,
+                    threadId: message.threadId,
+                    snippet: message.snippet,
+                    body,
+                    labelIds: message.labelIds || [],
+                    historyId: message.historyId,
+                    internalDate: message.internalDate,
+                    labels: message.labelIds || [],
+                    labelNames,
+                    from,
+                    subject,
+                    date,
+                    sizeEstimate: message.sizeEstimate
+                };
+            });
+
+            return emails;
+        } catch (error) {
+            console.error('Error fetching thread:', error);
+            throw error;
+        }
+    },
+
     async deleteEmail(emailId: string): Promise<void> {
         try {
             await makeRequest({
@@ -268,7 +343,7 @@ export const gmailApi = {
         }
     },
 
-    async findLabelByName(labelName: string): Promise<GmailLabel | undefined> {
+    async findLabelByName(labelName: string): Promise<any | undefined> {
         const labels = await this.getLabels();
         return labels.find(label => label.name === labelName);
     },
