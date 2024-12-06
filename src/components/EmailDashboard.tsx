@@ -26,6 +26,7 @@ import { Email } from '../types/email';
 import toast from 'react-hot-toast';
 import { EmailProcessor } from '../services/emailProcessor';
 import EmailModal from './EmailModal';
+import { isIgnoredSender } from '../config/ignoreList';
 
 const DEFAULT_LABELS_TO_HIDE = [
   'INBOX',
@@ -137,13 +138,26 @@ const EmailDashboard: React.FC = () => {
           nextPageToken?: string;
         } = await gmailApi.getEmails(currentPageToken);
         
-        const unprocessedEmails = response.emails.filter((email: Email) => 
-          !email.labelNames.includes('Processed') && !email.labelNames.includes('RateLimit')
-        );
+        const unprocessedEmails = response.emails.filter((email: Email) => {
+          if (email.labelNames.includes('Processed') || email.labelNames.includes('RateLimit')) {
+            return false;
+          }
+          
+          // Skip ignored senders but show in progress
+          if (isIgnoredSender(email.from)) {
+            setProcessingStatus(prev => ({
+              ...prev,
+              detail: `Skipping email from ignored sender: ${email.from}`
+            }));
+            return false;
+          }
+          
+          return true;
+        });
 
         if (unprocessedEmails.length > 0) {
           // Process emails from current page
-          for (let i = 0; i < unprocessedEmails.length; i++) {
+          for (let i = 0; i <unprocessedEmails.length; i++) {
             const email = unprocessedEmails[i];
             await emailProcessor.processEmail(email);
             totalProcessed++;

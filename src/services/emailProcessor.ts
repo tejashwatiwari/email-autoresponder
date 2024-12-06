@@ -4,6 +4,7 @@ import { GmailService } from './gmailService';
 import { openaiService, EmailCategory } from './openaiService';
 import { PromptService } from './promptTemplates';
 import { gmailApi } from './gmailApi';
+import { isIgnoredSender } from '../config/ignoreList';
 
 export class EmailProcessor {
     private static instance: EmailProcessor;
@@ -161,6 +162,15 @@ export class EmailProcessor {
     private async shouldProcessEmail(email: Email): Promise<boolean> {
         // Check if already processed
         if (this.hasLabel(email, 'Processed')) {
+            return false;
+        }
+
+        // Check if sender is in ignore list
+        if (isIgnoredSender(email.from)) {
+            console.log(`Skipping email from ignored sender: ${email.from}`);
+            // Optionally mark it as processed to avoid checking it again
+            await this.gmail.addLabel(email.id, 'Processed');
+            await this.gmail.addLabel(email.id, 'Ignored');
             return false;
         }
 
